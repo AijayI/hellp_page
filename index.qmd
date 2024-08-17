@@ -1,16 +1,254 @@
 ---
-title: "My First Page"
+title: "Influenza A H7N9 in China, 2013"
+format: dashboard
+theme: lux
 ---
 
 ```{r}
-library(reactable)
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, outbreaks, bslib, bsicons, shiny, 
+               rgeoboundaries, plotly, htmltools, reactable)
+
+# view data
+flu_data <- fluH7N9_china_2013
+head(flu_data)
+```
+### Step 2: Calculate Key Metrics
+
+```{r}
+
+# Calculate total cases
+total_cases <- fluH7N9_china_2013 %>%
+  summarise(total_cases = n()) %>%
+  pull(total_cases)
+
+# Calculate the province with the highest number of cases
+highest_case_province <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(total_cases = n()) %>%
+  arrange(desc(total_cases)) %>%
+  head(1) %>%
+  pull(province)
+
+highest_case_value <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(total_cases = n()) %>%
+  arrange(desc(total_cases)) %>%
+  head(1) %>%
+  pull(province)
+
+# Calculate the province with the lowest number of cases
+lowest_case_province <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(total_cases = n()) %>%
+  arrange(total_cases) %>%
+  head(1) %>%
+  pull(province)
+
+lowest_case_value <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(total_cases = n()) %>%
+  arrange(total_cases) %>%
+  head(1) %>%
+  pull(total_cases)
+
+# Total cases per province
+province_summary <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(total_cases = n()) %>%
+  arrange(desc(total_cases))  # Arrange in descending order of cases
+
+
+# Calculate total deaths
+total_deaths <- fluH7N9_china_2013 %>%
+  filter(outcome == "Death") %>%
+  summarise(total_deaths = n()) %>%
+  pull(total_deaths)
+
+# Calculate total hospitalizations
+total_hospitalizations <- fluH7N9_china_2013 %>%
+  filter(!is.na(date_of_hospitalisation)) %>%
+  summarise(total_hospitalizations = n()) %>%
+  pull(total_hospitalizations)
+
+# Calculate the average number of cases per province
+average_cases_per_province <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(total_cases = n()) %>%
+  summarise(average_cases = mean(total_cases)) %>%
+  pull(average_cases)
+
+# Display the calculated values
+total_cases
+highest_case_province
+highest_case_value
+lowest_case_province
+province_summary
+lowest_case_value
+total_deaths
+total_hospitalizations
+average_cases_per_province
+
+
+```
+
+# HOME 
+## Row 1 {Height = 25%}
+
+```{r}
+# Create value boxes for total cases, deaths, and hospitalizations
+value_box(
+  title = "Total Cases",
+  value = total_cases,
+  showcase = bsicons::bs_icon("person-fill"),
+  theme = value_box_theme(bg = "#007bff")
+)
+
+value_box(
+  title = "Total Deaths",
+  value = total_deaths,
+  showcase = bsicons::bs_icon("thermometer"),
+  theme = value_box_theme(bg = "#dc3545")
+)
+
+value_box(
+  title = "Total Hospitalizations",
+  value = total_hospitalizations,
+  showcase = bsicons::bs_icon("hospital"),
+  theme = value_box_theme(bg = "#28a745")
+)
+
+```
+
+### Step 3: Plot of Case Counts
+
+```{r}
+
+bar_chart_cases <- ggplot(province_summary, aes(x = reorder(location, -total_cases), y = total_cases)) +
+  geom_bar(stat = "identity", fill = "steelblue") +  # Use steelblue color for bars
+  labs(title = "Total Cases by Province", x = "Province", y = "Total Cases") +
+  theme_minimal() +  # Use a minimal theme for clean appearance
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+
+```
+
+### Step 4: Map of Cases by Province
+
+```{r results='hide', message=FALSE, warning = FALSE}
+pacman::p_load(outbreaks, rgeoboundaries, plotly)
+
+### MAP OF CASES PER PROVINCE
+province_summary <- fluH7N9_china_2013 %>% 
+  group_by(province) %>% 
+  summarise(total_cases = n()) 
+
+china_map <- rgeoboundaries::gb_adm1("china")
+
+# Check the keys to see if join will be successful
+setdiff(province_summary$province, china_map$shapeName)
+setdiff(china_map$shapeName, province_summary$province)
+# Some work to be done to harmonize these
+
+china_map <- china_map %>%
+  # Remove the strings Province, Municipality and Autonomous Region 
+  # to allow matching
+  mutate(province = str_trim(
+    str_remove(shapeName, "Province|Municipality|Autonomous Region")
+  ))
+
+# Check if join will work fine
+setdiff(province_summary$province, china_map$province)
+
+# Fix Guangdong, which based on a quick Google is actually Guangzhou
+china_map <- china_map %>% 
+  mutate(province = if_else(province == "Guangzhou", "Guangdong", province)) 
+  
+# Check again
+setdiff(province_summary$province, china_map$province)
+
+# Now join
+china_map_joined <- 
+  left_join(china_map, province_summary, by = "province") %>% 
+  # Create tooltip label 
+  mutate(tooltip_label = paste0(province, ": ", total_cases))
+
+china_map_plot <- ggplot(china_map_joined) +
+  geom_sf(aes(fill = total_cases, text = tooltip_label)) + 
+  theme_void() +
+  labs(fill = "Number of Cases") + 
+  theme(legend.position = "none")
+
+china_map_plot_ggplotly <- 
+  ggplotly(china_map_plot, tooltip = "text")
+
 ```
 
 ```{r}
-reactable(infert)
+china_map_plot_ggplotly
 ```
 
-```{r}
-plot(women)
+### Step 5: Download Data Page
+
+```{r message=FALSE}
+
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(htmltools, reactable, outbreaks)
+
+# Create the interactive table with reactable and add download button
+head(fluH7N9_china_2013)
+htmltools::browsable(
+  tagList(
+    reactable(
+      fluH7N9_china_2013,   # Use the flu dataset
+      elementId = "fluH7N9-table",  # Assign an element ID for the table
+      searchable = TRUE,    # Enable search functionality
+      filterable = TRUE,    # Enable filtering
+      columns = list(       # Define columns using list and colDef
+        date_of_onset = colDef(name = "Onset Date"),
+        province = colDef(name = "Province"),
+        outcome = colDef(name = "Outcome"),
+        date_of_hospitalisation = colDef(name = "Hospitalization Date")
+      )
+    ),
+    # Add download button
+    tags$button(
+      "Download as CSV",
+      onclick = "Reactable.downloadDataCSV('fluH7N9-table')"  # CSV download functionality
+    )
+  )
+)
+
+
 ```
+
+
+
+
+### Step 6: Render and Deploy
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

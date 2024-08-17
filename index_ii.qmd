@@ -1,0 +1,216 @@
+---
+title: "Influenza A H7N9 in China, 2013"
+format: 
+  dashboard:
+    embed-resources: true
+theme: lux
+---
+
+```{r}
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, outbreaks, bslib, bsicons, shiny, 
+               rgeoboundaries, plotly, htmltools, reactable)
+```
+
+
+```{r}
+
+
+# Calculate total cases
+total_cases <- fluH7N9_china_2013 %>%
+  summarise(total_cases = n()) %>%
+  pull(total_cases)
+
+# Calculate total deaths
+total_deaths <- fluH7N9_china_2013 %>%
+  filter(outcome == "Death") %>%
+  summarise(total_deaths = n()) %>%
+  pull(total_deaths)
+
+# Calculate total hospitalizations
+total_hospitalizations <- fluH7N9_china_2013 %>%
+  filter(!is.na(date_of_hospitalisation)) %>%
+  summarise(total_hospitalizations = n()) %>%
+  pull(total_hospitalizations)
+
+# Total cases per province
+province_summary <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(total_cases = n()) %>%
+  arrange(desc(total_cases))  # Arrange in descending order of cases
+
+
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+
+pacman::p_load(outbreaks, rgeoboundaries, plotly)
+
+### MAP OF CASES PER PROVINCE
+
+china_map <- rgeoboundaries::gb_adm1("china")
+
+# Check the keys to see if join will be successful
+setdiff(province_summary$province, china_map$shapeName)
+setdiff(china_map$shapeName, province_summary$province)
+# Some work to be done to harmonize these
+
+china_map <- china_map %>%
+  # Remove the strings Province, Municipality and Autonomous Region 
+  # to allow matching
+  mutate(province = str_trim(
+    str_remove(shapeName, "Province|Municipality|Autonomous Region")
+  ))
+
+# Check if join will work fine
+setdiff(province_summary$province, china_map$province)
+
+# Fix Guangdong, which based on a quick Google is actually Guangzhou
+china_map <- china_map %>% 
+  mutate(province = if_else(province == "Guangzhou", "Guangdong", province)) 
+  
+# Check again
+setdiff(province_summary$province, china_map$province)
+
+# Now join
+china_map_joined <- 
+  left_join(china_map, province_summary, by = "province") %>% 
+  # Create tooltip label 
+  mutate(tooltip_label = paste0(province, ": ", total_cases))
+
+china_map_plot <- ggplot(china_map_joined) +
+  geom_sf(aes(fill = total_cases, text = tooltip_label)) + 
+  theme_void() +
+  labs(fill = "Number of Cases") + 
+  theme(legend.position = "none")
+
+china_map_plot_ggplotly <- 
+  ggplotly(china_map_plot, tooltip = "text")
+
+```
+
+
+```{r results='hide', message=FALSE, warning = FALSE}
+
+# Create a bar chart for the top provinces by total cases
+province_bar_chart <- province_summary %>%
+  mutate(tooltip_label = paste(province, total_cases, sep = ": ")) %>%
+  ggplot(aes(y = reorder(province, total_cases), x = total_cases, fill = total_cases, text = tooltip_label)) + 
+  geom_col() + 
+  geom_text(aes(label = total_cases), nudge_x = -5, color = "white") +  # Add labels inside the bars
+  labs(y = "Province", x = "Total Cases") + 
+  theme_minimal() + 
+  theme(legend.position = "none")  # Remove the legend
+
+# Convert the ggplot chart to an interactive plotly chart
+interactive_province_bar_chart <- ggplotly(province_bar_chart, tooltip = "text")
+
+# Display the interactive bar chart
+interactive_province_bar_chart
+
+
+```
+
+
+
+# HOME 
+
+## Row 1 {Height = 25%}
+
+```{r}
+value_box(
+  title = "Total Cases",
+  value = total_cases,
+  showcase = bsicons::bs_icon("person-fill"),
+  theme = value_box_theme(bg = "#007bff")
+)
+```
+```{r}
+value_box(
+  title = "Total Deaths",
+  value = total_deaths,
+  showcase = bsicons::bs_icon("thermometer"),
+  theme = value_box_theme(bg = "#dc3545"),  # Comma added here
+   )
+```
+
+```{r} 
+value_box(
+  title = "Total Hospitalizations",
+  value = total_hospitalizations,
+  showcase = bsicons::bs_icon("hospital"),
+  theme = value_box_theme(bg = "#28a745")
+)
+```
+
+
+## Row 2 {height=75%}
+
+### {width=70%}
+
+```{r title = "Map of Cases by Province"}
+china_map_plot_ggplotly
+```
+
+### {width=30%}
+
+```{r title  = "Total Cases by Province"}
+interactive_province_bar_chart
+```
+
+
+# Download Data
+
+```{r message=FALSE}
+
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(htmltools, reactable, outbreaks)
+
+# Create the interactive table with reactable and add download button
+
+htmltools::browsable(
+  tagList(
+    reactable(
+      fluH7N9_china_2013,   # Use the flu dataset
+      elementId = "fluH7N9-table",  # Assign an element ID for the table
+      searchable = TRUE,    # Enable search functionality
+      filterable = TRUE,    # Enable filtering
+      columns = list(  # Here you define the columns properly within the list function
+        case_id = colDef(name = "Case ID"),
+        date_of_onset = colDef(name = "Onset Date"),
+        date_of_hospitalisation = colDef(name = "Hospitalization Date"),
+        date_of_outcome = colDef(name = "Outcome Date"),
+        outcome = colDef(name = "Outcome"),
+        gender = colDef(name = "Gender"),
+        age = colDef(name = "Age"),
+        province = colDef(name = "Province")
+      )
+    ),
+    # Add download button
+    tags$button(
+      "Download as CSV",
+      onclick = "Reactable.downloadDataCSV('fluH7N9-table')"  # CSV download functionality
+    )
+  )
+)
+
+
+
+```
+
+
+# ABOUT
+
+This data comes from the `outbreaks` package, specifically documenting the 2013 outbreak of Influenza A (H7N9) in China. The data includes case information, such as the onset of symptoms, hospitalizations, outcomes, and demographic information for each patient.
+
+The Influenza A (H7N9) outbreak in China was a significant public health event. The H7N9 virus primarily affected the respiratory system and was known for its ability to cause severe pneumonia. While most human infections with H7N9 were linked to exposure to live poultry, the outbreak sparked global concern about potential human-to-human transmission.
+
+The outbreak highlighted the importance of rapid epidemiological data sharing, robust public health systems, and the need for pandemic preparedness to contain future flu outbreaks.
+
+### Data Source:
+
+The data used in this dashboard is publicly available through the `outbreaks` R package. It is maintained by epidemiologists and health professionals to track and analyze historical outbreak data for research and public health purposes.
+
+This outbreak data can be explored further in research articles and health organization databases.
